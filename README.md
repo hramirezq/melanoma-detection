@@ -29,6 +29,30 @@ Ver [data/README.md](data/README.md) para la descarga. Luego, generar la partici
 
 Figuras en `results/figures/eda_*.png`.
 
+## Corrupciones
+
+```bash
+.venv/bin/python -m src.corruptions
+```
+
+Genera `results/figures/corruptions_grid.png` (6 corrupciones × 5 severidades) y comprueba que son deterministas.
+
+## Entrenamiento
+
+Copia redimensionada (lado corto 256 px, PNG) para entrenar rápido:
+
+```bash
+.venv/bin/python -m src.data --root data/raw/pad --resize data/raw/pad_256
+```
+
+Una corrida (las 18 configs están en `configs/`, `<modelo>_<aug>_s<semilla>.yaml`):
+
+```bash
+.venv/bin/python -m src.train configs/effb0_standard_s1.yaml
+```
+
+Escribe `results/logs/<run_id>.json`, `results/checkpoints/<run_id>.pt` y `results/preds/<run_id>.csv` (val limpio + test limpio y con 6 corrupciones × 5 severidades). `--epochs 1` sirve de prueba de humo; `--resume` continúa una corrida cortada. En GPU, usar [notebooks/train_colab.ipynb](notebooks/train_colab.ipynb) en Colab.
+
 ## Estructura
 
 ```
