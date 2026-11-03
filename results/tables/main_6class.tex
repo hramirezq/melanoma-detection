@@ -1,0 +1,14 @@
+\begin{table}[t]
+\caption{Clasificación en 6 clases en el test limpio (media $\pm$ sd).}
+\label{tab:main_6class}
+\begin{tabular}{llcc}
+\toprule
+Modelo & Augmentation & BACC & Macro-F1 \\
+\midrule
+ResNet-50 + LR & - & 0.456 & 0.460 \\
+EfficientNet-B0 & none & 0.536 $\pm$ 0.026 & 0.544 $\pm$ 0.024 \\
+EfficientNet-B0 & standard & 0.589 $\pm$ 0.048 & 0.596 $\pm$ 0.049 \\
+EfficientNet-B0 & robust & 0.588 $\pm$ 0.036 & 0.579 $\pm$ 0.036 \\
+\bottomrule
+\end{tabular}
+\end{table}

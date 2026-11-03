@@ -1,0 +1,230 @@
+"""Metrics and tables from results/preds/*.csv (contract in the research plan).
+
+Usage:
+    python -m src.evaluate               # writes results/tables/*.csv|tex and results/figures/robustness_curve.png
+    python -m src.evaluate --selftest    # synthetic preds: perfect -> AUC 1, random -> AUC ~0.5
+
+Main metric: cancer AUC (p_cancer = p_BCC + p_MEL + p_SCC) with 95% CI by patient bootstrap.
+Operating point: threshold for 90% sensitivity fixed on val, applied unchanged to test.
+"""
+import argparse
+import re
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy.stats import binomtest
+from sklearn.metrics import balanced_accuracy_score, f1_score, roc_auc_score
+
+from src.data import CLASSES
+
+CANCER = ["BCC", "MEL", "SCC"]
+CANCER_IDX = [CLASSES.index(c) for c in CANCER]
+SEEN = ["brightness", "gaussian_blur", "gaussian_noise", "hair"]
+UNSEEN = ["motion_blur", "jpeg"]
+MODEL_NAMES = {"effb0": "EfficientNet-B0", "vits16": "ViT-S/16", "baseline_logreg": "ResNet-50 + LR",
+               "ham_effb0": "EfficientNet-B0 (HAM)"}
+N_BOOT = 1000
+
+
+def parse_run(run_id):
+    m = re.fullmatch(r"(.+)_(none|standard|robust)_s(\d+)", run_id)
+    return (m[1], m[2], int(m[3])) if m else (run_id, "-", 0)
+
+
+def p_cancer(df):
+    p = df[[f"p_{c}" for c in CANCER]].sum(axis=1).to_numpy()
+    assert ((p >= -1e-6) & (p <= 1 + 1e-6)).all(), "p_cancer outside [0, 1]"
+    return p
+
+
+def threshold_at_sensitivity(val, target=0.9):
+    """Largest threshold with sensitivity >= target. Only val rows are accepted."""
+    assert (val["split"] == "val").all() and (val["corruption"] == "clean").all(), "threshold must come from clean val"
+    pos = np.sort(p_cancer(val)[val["y_true"].isin(CANCER_IDX).to_numpy()])[::-1]
+    return pos[int(np.ceil(target * len(pos))) - 1]
+
+
+def boot_auc_ci(ys, scores, groups, seed=0):
+    """95% CI of the mean AUC over runs (aligned rows), resampling patients with replacement."""
+    rng = np.random.default_rng(seed)
+    idx_by_group = [np.flatnonzero(groups == g) for g in np.unique(groups)]
+    stats = []
+    for _ in range(N_BOOT):
+        idx = np.concatenate([idx_by_group[i] for i in rng.integers(len(idx_by_group), size=len(idx_by_group))])
+        if ys[idx].min() == ys[idx].max():
+            continue
+        stats.append(np.mean([roc_auc_score(ys[idx], s[idx]) for s in scores]))
+    return np.percentile(stats, [2.5, 97.5])
+
+
+def clopper_pearson(k, n):
+    ci = binomtest(k, n).proportion_ci(method="exact")
+    return ci.low, ci.high
+
+
+def evaluate_run(preds):
+    """Per-run metrics on clean test + AUC per (corruption, severity)."""
+    val = preds[preds["split"] == "val"]
+    test = preds[preds["split"] == "test"]
+    thr = threshold_at_sensitivity(val)
+    clean = test[test["corruption"] == "clean"]
+    y = clean["y_true"].to_numpy()
+    is_cancer = np.isin(y, CANCER_IDX)
+    flag = p_cancer(clean) >= thr
+    probs = clean[[f"p_{c}" for c in CLASSES]].to_numpy()
+    row = dict(threshold=thr, auc=roc_auc_score(is_cancer, p_cancer(clean)),
+               sens=flag[is_cancer].mean(), spec=(~flag[~is_cancer]).mean(),
+               bacc=balanced_accuracy_score(y, probs.argmax(1)), macro_f1=f1_score(y, probs.argmax(1), average="macro"))
+    for c in CANCER:
+        sub = y == CLASSES.index(c)
+        k, n = int(flag[sub].sum()), int(sub.sum())
+        row.update({f"sens_{c}": k / n, f"k_{c}": k, f"n_{c}": n})
+        row[f"sens_{c}_lo"], row[f"sens_{c}_hi"] = clopper_pearson(k, n)
+    auc = (test.assign(pc=p_cancer(test), yc=test["y_true"].isin(CANCER_IDX))
+           .groupby(["corruption", "severity"])[["yc", "pc"]]
+           .apply(lambda g: roc_auc_score(g["yc"], g["pc"])).rename("auc").reset_index())
+    return row, auc
+
+
+def pm(s, digits=3):
+    return f"{s.mean():.{digits}f} ± {s.std(ddof=1):.{digits}f}" if len(s) > 1 else f"{s.mean():.{digits}f}"
+
+
+def label(model, aug):
+    return MODEL_NAMES.get(model, model), aug
+
+
+def write_tex(df, path, caption):
+    df = df.map(lambda v: v.replace("±", "$\\pm$").replace("%", "\\%") if isinstance(v, str) else v)
+    df.columns = [c.replace("%", "\\%") for c in df.columns]
+    df.to_latex(path, index=False, caption=caption, label=f"tab:{Path(path).stem}", position="t", column_format="l" * 2 + "c" * (df.shape[1] - 2))
+
+
+def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tables="results/tables",
+         figures="results/figures"):
+    Path(tables).mkdir(parents=True, exist_ok=True)
+    patients = pd.read_csv(split_path).set_index("img_id")["patient_id"]
+    runs, aucs, clean_test = [], [], {}
+    for f in sorted(Path(preds_dir).glob("*.csv")):
+        preds = pd.read_csv(f)
+        model, aug, seed = parse_run(f.stem)
+        row, auc = evaluate_run(preds)
+        runs.append(dict(run_id=f.stem, model=model, aug=aug, seed=seed, **row))
+        aucs.append(auc.assign(run_id=f.stem, model=model, aug=aug, seed=seed))
+        clean_test[f.stem] = preds.query("split == 'test' and corruption == 'clean'").sort_values("img_id")
+    runs, aucs = pd.DataFrame(runs), pd.concat(aucs, ignore_index=True)
+    runs.to_csv(f"{tables}/per_run.csv", index=False, float_format="%.4f")
+
+    # Main table: clean test, mean +- sd over seeds, CI of the seed-mean AUC by patient bootstrap.
+    order = {"none": 0, "standard": 1, "robust": 2, "-": 3}
+    groups = sorted(runs.groupby(["model", "aug"]).groups, key=lambda g: (g[0], order[g[1]]))
+    main_rows, six_rows = [], []
+    for model, aug in groups:
+        g = runs[(runs["model"] == model) & (runs["aug"] == aug)]
+        frames = [clean_test[r] for r in g["run_id"]]
+        assert all((fr["img_id"].to_numpy() == frames[0]["img_id"].to_numpy()).all() for fr in frames)
+        y = frames[0]["y_true"].isin(CANCER_IDX).to_numpy()
+        lo, hi = boot_auc_ci(y, [p_cancer(fr) for fr in frames], patients.loc[frames[0]["img_id"]].to_numpy())
+        name, aug_name = label(model, aug)
+        main_rows.append({"Modelo": name, "Augmentation": aug_name, "Semillas": len(g),
+                          "AUC cáncer": pm(g["auc"]), "IC 95 %": f"[{lo:.3f}, {hi:.3f}]",
+                          "Espec. @ sens. 90 %": pm(g["spec"]), "Sens. test": pm(g["sens"]),
+                          "Sens. BCC": pm(g["sens_BCC"], 2), "Sens. SCC": pm(g["sens_SCC"], 2),
+                          "Sens. MEL": pm(g["sens_MEL"], 2)})
+        six_rows.append({"Modelo": name, "Augmentation": aug_name, "BACC": pm(g["bacc"]), "Macro-F1": pm(g["macro_f1"])})
+    main_df, six_df = pd.DataFrame(main_rows), pd.DataFrame(six_rows)
+    main_df.to_csv(f"{tables}/main.csv", index=False)
+    six_df.to_csv(f"{tables}/main_6class.csv", index=False)
+    write_tex(main_df.iloc[:, [0, 1, 3, 4, 5, 6]], f"{tables}/main.tex",
+              "Triaje cáncer vs. no cáncer en el test limpio de PAD-UFES-20 (media $\\pm$ sd entre semillas; "
+              "IC 95 \\% por bootstrap de pacientes). Umbral fijado en validación a sensibilidad 90 \\%.")
+    write_tex(six_df, f"{tables}/main_6class.tex", "Clasificación en 6 clases en el test limpio (media $\\pm$ sd).")
+
+    # Robustness: relative AUC drop per seed, then mean +- sd over seeds.
+    clean_auc = aucs[aucs["corruption"] == "clean"].set_index("run_id")["auc"]
+    aucs["drop"] = (aucs["run_id"].map(clean_auc) - aucs["auc"]) / aucs["run_id"].map(clean_auc)
+    curve = aucs.groupby(["model", "aug", "corruption", "severity"])[["auc", "drop"]].agg(["mean", "std"])
+    curve.columns = ["_".join(c) for c in curve.columns]
+    curve.reset_index().to_csv(f"{tables}/robustness.csv", index=False, float_format="%.4f")
+
+    corrupted = aucs[aucs["corruption"] != "clean"]
+    per_seed = corrupted.groupby(["model", "aug", "seed", "corruption"])["drop"].mean().unstack()
+    per_seed["Vistas"] = per_seed[SEEN].mean(axis=1)
+    per_seed["No vistas"] = per_seed[UNSEEN].mean(axis=1)
+    rob_rows = []
+    for model, aug in groups:
+        g = per_seed.loc[(model, aug)]
+        rob_rows.append({"Modelo": label(model, aug)[0], "Augmentation": aug,
+                         **{c: pm(100 * g[c], 1) for c in SEEN + UNSEEN + ["Vistas", "No vistas"]}})
+    rob_df = pd.DataFrame(rob_rows)
+    rob_df.to_csv(f"{tables}/robustness_drop.csv", index=False)
+    write_tex(rob_df.rename(columns=lambda c: c.replace("_", " ")), f"{tables}/robustness.tex",
+              "Caída relativa de la AUC cáncer (\\%) bajo corrupción, promedio de las severidades 1--5 "
+              "(media $\\pm$ sd entre semillas). motion blur y jpeg no se usan en la augmentation.")
+
+    # Figure: AUC vs severity, one panel per corruption, one line per (model, aug).
+    fig, axes = plt.subplots(2, 3, figsize=(12, 7), sharey=True)
+    styles = {"none": "C0", "standard": "C1", "robust": "C2", "-": "C7"}
+    for ax, corr in zip(axes.flat, SEEN + UNSEEN):
+        for (model, aug) in groups:
+            clean = curve.loc[(model, aug, "clean", 0)]
+            c = curve.loc[(model, aug, corr)]
+            x = [0] + list(c.index)
+            ax.errorbar(x, [clean["auc_mean"]] + list(c["auc_mean"]),
+                        yerr=[0 if np.isnan(clean["auc_std"]) else clean["auc_std"]] + list(c["auc_std"].fillna(0)),
+                        color=styles[aug], ls="-" if model != "vits16" else "--", marker="o", ms=3, capsize=2,
+                        label=f"{label(model, aug)[0]} · {aug}")
+        ax.set_title(corr + ("" if corr in SEEN else " (no vista)"))
+        ax.set_xticks(range(6))
+        ax.grid(alpha=0.3)
+    for ax in axes[1]:
+        ax.set_xlabel("Severidad (0 = limpia)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("AUC cáncer (test)")
+    axes[0, 0].legend(fontsize=8)
+    plt.tight_layout()
+    plt.savefig(f"{figures}/robustness_curve.png", dpi=200)
+
+    print(main_df.iloc[:, :7].to_string(index=False))
+    print(six_df.to_string(index=False))
+    print(rob_df.to_string(index=False))
+
+
+def selftest():
+    """Perfect preds -> AUC 1; random preds -> AUC ~0.5; the threshold refuses test rows."""
+    import tempfile
+
+    split = pd.read_csv("data/splits/pad_split.csv").query("split != 'train'")
+    y = split["diagnostic"].map(CLASSES.index).to_numpy()
+    with tempfile.TemporaryDirectory() as d:
+        Path(f"{d}/preds").mkdir()
+        rng = np.random.default_rng(0)
+        for name, probs in [("perfect", np.eye(len(CLASSES))[y]), ("random", rng.dirichlet(np.ones(6), len(y)))]:
+            rows = [split.assign(corruption="clean", severity=0)]
+            rows += [split[split["split"] == "test"].assign(corruption=c, severity=s) for c in SEEN + UNSEEN for s in range(1, 6)]
+            df = pd.concat(rows, ignore_index=True)
+            p = np.concatenate([probs] + [probs[split["split"].to_numpy() == "test"]] * 30)
+            df = df[["img_id", "split", "corruption", "severity"]].assign(y_true=df["diagnostic"].map(CLASSES.index))
+            df[[f"p_{c}" for c in CLASSES]] = p
+            for s in (1, 2):
+                df.to_csv(f"{d}/preds/{name}_none_s{s}.csv", index=False)
+        Path(f"{d}/fig").mkdir()
+        main(f"{d}/preds", tables=f"{d}/tables", figures=f"{d}/fig")
+        res = pd.read_csv(f"{d}/tables/per_run.csv").set_index("run_id")
+        assert res.loc["perfect_none_s1", "auc"] == 1 and res.loc["perfect_none_s1", "bacc"] == 1
+        assert abs(res.loc["random_none_s1", "auc"] - 0.5) < 0.1
+        test = df[df["split"] == "test"]
+        try:
+            threshold_at_sensitivity(test)
+            raise RuntimeError("threshold accepted test rows")
+        except AssertionError:
+            pass
+    print("selftest ok")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--selftest", action="store_true")
+    selftest() if ap.parse_args().selftest else main()

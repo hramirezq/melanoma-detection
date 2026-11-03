@@ -1,0 +1,5 @@
+Modelo,Augmentation,BACC,Macro-F1
+ResNet-50 + LR,-,0.456,0.460
+EfficientNet-B0,none,0.536 ± 0.026,0.544 ± 0.024
+EfficientNet-B0,standard,0.589 ± 0.048,0.596 ± 0.049
+EfficientNet-B0,robust,0.588 ± 0.036,0.579 ± 0.036

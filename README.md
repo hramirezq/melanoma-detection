@@ -53,6 +53,16 @@ Una corrida (las 18 configs están en `configs/`, `<modelo>_<aug>_s<semilla>.yam
 
 Escribe `results/logs/<run_id>.json`, `results/checkpoints/<run_id>.pt` y `results/preds/<run_id>.csv` (val limpio + test limpio y con 6 corrupciones × 5 severidades). `--epochs 1` sirve de prueba de humo; `--resume` continúa una corrida cortada. En GPU, usar [notebooks/train_colab.ipynb](notebooks/train_colab.ipynb) en Colab.
 
+## Evaluación
+
+```bash
+.venv/bin/python -m src.baseline            # ResNet-50 congelada + regresión logística
+.venv/bin/python -m src.evaluate            # tablas y figura a partir de results/preds/*.csv
+.venv/bin/python -m src.evaluate --selftest # predicciones sintéticas: perfecta → AUC 1, aleatoria → ~0,5
+```
+
+Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, los CSV correspondientes y `results/figures/robustness_curve.png`.
+
 ## Estructura
 
 ```

@@ -1,0 +1,14 @@
+\begin{table}[t]
+\caption{Triaje cáncer vs. no cáncer en el test limpio de PAD-UFES-20 (media $\pm$ sd entre semillas; IC 95 \% por bootstrap de pacientes). Umbral fijado en validación a sensibilidad 90 \%.}
+\label{tab:main}
+\begin{tabular}{llcccc}
+\toprule
+Modelo & Augmentation & AUC cáncer & IC 95 \% & Espec. @ sens. 90 \% & Sens. test \\
+\midrule
+ResNet-50 + LR & - & 0.825 & [0.773, 0.870] & 0.445 & 0.955 \\
+EfficientNet-B0 & none & 0.880 $\pm$ 0.003 & [0.842, 0.911] & 0.653 $\pm$ 0.015 & 0.906 $\pm$ 0.019 \\
+EfficientNet-B0 & standard & 0.898 $\pm$ 0.015 & [0.861, 0.930] & 0.782 $\pm$ 0.015 & 0.874 $\pm$ 0.039 \\
+EfficientNet-B0 & robust & 0.907 $\pm$ 0.003 & [0.872, 0.936] & 0.755 $\pm$ 0.035 & 0.887 $\pm$ 0.016 \\
+\bottomrule
+\end{tabular}
+\end{table}
