@@ -2,8 +2,10 @@
 
 Usage:
     python -m src.data --root data/raw/pad --out data/splits/pad_split.csv
+    python -m src.data --root data/raw/pad --resize data/raw/pad_256   # PNG, short side 256 px
 """
 import argparse
+import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -43,6 +45,19 @@ def make_split(df, seed=42):
     return df
 
 
+def resize_images(df, root, out, short=256):
+    """Copy of the dataset with short side <= `short` px. PNG, so the `jpeg` corruption starts from lossless images."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    shutil.copy(Path(root) / "metadata.csv", out / "metadata.csv")
+    for p in df["path"]:
+        img = Image.open(p).convert("RGB")
+        s = short / min(img.size)
+        if s < 1:
+            img = img.resize((round(img.width * s), round(img.height * s)), Image.LANCZOS)
+        img.save(out / p.name)
+
+
 class PADDataset(Dataset):
     def __init__(self, df, transform=None):
         self.paths = df["path"].tolist()
@@ -64,8 +79,13 @@ if __name__ == "__main__":
     ap.add_argument("--root", default="data/raw/pad")
     ap.add_argument("--out", default="data/splits/pad_split.csv")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--resize", metavar="OUT_DIR", help="only write the resized copy; the split is not touched")
     args = ap.parse_args()
 
+    if args.resize:
+        resize_images(load_pad(args.root), args.root, args.resize)
+        print(f"{len(load_pad(args.resize))} images in {args.resize}")
+        raise SystemExit
     df = make_split(load_pad(args.root), args.seed)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     df[["img_id", "patient_id", "lesion_id", "diagnostic", "split"]].to_csv(args.out, index=False)
