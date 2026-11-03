@@ -1,0 +1,9 @@
+model: efficientnet_b0
+aug: none
+seed: 2
+img_size: 224
+epochs: 30
+batch_size: 32
+lr: 3.0e-4
+weight_decay: 0.05
+patience: 7

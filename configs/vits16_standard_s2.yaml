@@ -1,0 +1,9 @@
+model: vit_small_patch16_224
+aug: standard
+seed: 2
+img_size: 224
+epochs: 30
+batch_size: 32
+lr: 1.0e-4
+weight_decay: 0.05
+patience: 7
