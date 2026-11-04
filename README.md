@@ -61,7 +61,7 @@ Escribe `results/logs/<run_id>.json`, `results/checkpoints/<run_id>.pt` y `resul
 .venv/bin/python -m src.evaluate --selftest # predicciones sintéticas: perfecta → AUC 1, aleatoria → ~0,5
 ```
 
-Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, `paired.tex` (diferencias emparejadas de AUC entre augmentations y entre modelos, limpia y con corrupción), los CSV correspondientes y `results/figures/robustness_curve.png`.
+Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, `paired.tex` (diferencias emparejadas de AUC entre augmentations y entre modelos, limpia y con corrupción), `subtype.tex` (sensibilidad por BCC/MEL/SCC), `bias.tex` (por fototipo de Fitzpatrick), `cost.tex` (a partir de `results/logs`), `melanoma_cases.csv`, los CSV correspondientes, `results/figures/robustness_curve.png` y `results/figures/confusion_robust.png`. Requiere `data/raw/pad_256/metadata.csv`.
 
 ## Estructura
 

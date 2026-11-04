@@ -1,0 +1,31 @@
+\begin{table}[t]
+\caption{Triaje por fototipo de Fitzpatrick en el test limpio (media $\pm$ sd entre semillas; umbral de operación fijado en validación). El fototipo falta solo en lesiones no cancerosas. AUC solo con al menos 10 casos por clase.}
+\label{tab:bias}
+\begin{tabular}{llccccc}
+\toprule
+Modelo & Augmentation & Fototipo & n (cáncer/no) & AUC cáncer & Sens. & Espec. \\
+\midrule
+ResNet-50 + LR & - & I-II & 113/40 & 0.729 & 0.947 & 0.375 \\
+ResNet-50 + LR & - & III-VI & 43/15 & 0.716 & 0.977 & 0.333 \\
+ResNet-50 + LR & - & Desconocido & 0/118 & - & - & 0.483 \\
+EfficientNet-B0 & none & I-II & 113/40 & 0.767 $\pm$ 0.009 & 0.923 $\pm$ 0.018 & 0.408 $\pm$ 0.038 \\
+EfficientNet-B0 & none & III-VI & 43/15 & 0.891 $\pm$ 0.040 & 0.860 $\pm$ 0.023 & 0.756 $\pm$ 0.102 \\
+EfficientNet-B0 & none & Desconocido & 0/118 & - & - & 0.723 $\pm$ 0.005 \\
+EfficientNet-B0 & standard & I-II & 113/40 & 0.820 $\pm$ 0.043 & 0.894 $\pm$ 0.044 & 0.575 $\pm$ 0.050 \\
+EfficientNet-B0 & standard & III-VI & 43/15 & 0.867 $\pm$ 0.031 & 0.822 $\pm$ 0.036 & 0.711 $\pm$ 0.038 \\
+EfficientNet-B0 & standard & Desconocido & 0/118 & - & - & 0.862 $\pm$ 0.021 \\
+EfficientNet-B0 & robust & I-II & 113/40 & 0.800 $\pm$ 0.013 & 0.917 $\pm$ 0.010 & 0.492 $\pm$ 0.058 \\
+EfficientNet-B0 & robust & III-VI & 43/15 & 0.883 $\pm$ 0.027 & 0.806 $\pm$ 0.036 & 0.733 $\pm$ 0.067 \\
+EfficientNet-B0 & robust & Desconocido & 0/118 & - & - & 0.847 $\pm$ 0.031 \\
+ViT-S/16 & none & I-II & 113/40 & 0.812 $\pm$ 0.012 & 0.879 $\pm$ 0.010 & 0.500 $\pm$ 0.000 \\
+ViT-S/16 & none & III-VI & 43/15 & 0.969 $\pm$ 0.010 & 0.860 $\pm$ 0.023 & 0.978 $\pm$ 0.038 \\
+ViT-S/16 & none & Desconocido & 0/118 & - & - & 0.924 $\pm$ 0.031 \\
+ViT-S/16 & standard & I-II & 113/40 & 0.821 $\pm$ 0.033 & 0.909 $\pm$ 0.036 & 0.517 $\pm$ 0.029 \\
+ViT-S/16 & standard & III-VI & 43/15 & 0.955 $\pm$ 0.026 & 0.915 $\pm$ 0.088 & 0.844 $\pm$ 0.038 \\
+ViT-S/16 & standard & Desconocido & 0/118 & - & - & 0.898 $\pm$ 0.039 \\
+ViT-S/16 & robust & I-II & 113/40 & 0.816 $\pm$ 0.001 & 0.891 $\pm$ 0.053 & 0.550 $\pm$ 0.066 \\
+ViT-S/16 & robust & III-VI & 43/15 & 0.943 $\pm$ 0.019 & 0.853 $\pm$ 0.071 & 0.867 $\pm$ 0.115 \\
+ViT-S/16 & robust & Desconocido & 0/118 & - & - & 0.901 $\pm$ 0.042 \\
+\bottomrule
+\end{tabular}
+\end{table}

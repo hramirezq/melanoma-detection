@@ -8,6 +8,7 @@ Main metric: cancer AUC (p_cancer = p_BCC + p_MEL + p_SCC) with 95% CI by patien
 Operating point: threshold for 90% sensitivity fixed on val, applied unchanged to test.
 """
 import argparse
+import json
 import re
 from itertools import combinations
 from pathlib import Path
@@ -15,8 +16,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import timm
 from scipy.stats import binomtest, rankdata
-from sklearn.metrics import balanced_accuracy_score, f1_score, roc_auc_score
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score, roc_auc_score
 
 from src.data import CLASSES
 
@@ -140,7 +142,7 @@ def write_tex(df, path, caption):
 
 
 def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tables="results/tables",
-         figures="results/figures"):
+         figures="results/figures", logs_dir="results/logs", meta_path="data/raw/pad_256/metadata.csv"):
     Path(tables).mkdir(parents=True, exist_ok=True)
     patients = pd.read_csv(split_path).set_index("img_id")["patient_id"]
     runs, aucs, clean_test, test_all = [], [], {}, {}
@@ -229,6 +231,104 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
               "media de las 30 condiciones (6 corrupciones $\\times$ 5 severidades). IC 95 \\% por bootstrap de "
               "pacientes con los mismos remuestreos para ambos grupos.")
 
+    # Sensitivity per cancer subtype at the operating threshold; exact CI with the seed-mean hit count.
+    sub_rows = []
+    for model, aug in groups:
+        g = runs[(runs["model"] == model) & (runs["aug"] == aug)]
+        row = {"Modelo": label(model, aug)[0], "Augmentation": aug}
+        for c in CANCER:
+            n, k = int(g[f"n_{c}"].iloc[0]), int(round(g[f"k_{c}"].mean()))
+            lo, hi = clopper_pearson(k, n)
+            row[f"{c} (n={n})"] = f"{pm(g[f'sens_{c}'], 2)} [{lo:.2f}, {hi:.2f}]"
+        sub_rows.append(row)
+    sub_df = pd.DataFrame(sub_rows)
+    sub_df.to_csv(f"{tables}/subtype.csv", index=False)
+    write_tex(sub_df, f"{tables}/subtype.tex",
+              "Sensibilidad por subtipo de cáncer en el test limpio al umbral de operación (media $\\pm$ sd entre "
+              "semillas). IC 95 \\% exacto de Clopper-Pearson con el número medio de aciertos, redondeado.")
+
+    # Per-run flags at the operating threshold (rows aligned with `first`, sorted by img_id).
+    thr = runs.set_index("run_id")["threshold"]
+    pc = {r: p_cancer(clean_test[r]) for r in runs["run_id"]}
+    is_mel = (first["y_true"] == CLASSES.index("MEL")).to_numpy()
+
+    # Melanoma cases: mean p_cancer over seeds and how many seeds refer each one.
+    meta = pd.read_csv(meta_path).set_index("img_id")
+    cases = meta.loc[img_ids[is_mel], ["age", "region", "fitspatrick", "diameter_1", "diameter_2"]].reset_index()
+    for model, aug in groups:
+        rids = runs.loc[(runs["model"] == model) & (runs["aug"] == aug), "run_id"]
+        p = np.stack([pc[r][is_mel] for r in rids])
+        hits = np.stack([pc[r][is_mel] >= thr[r] for r in rids]).sum(0)
+        cases[f"{label(model, aug)[0]} {aug}"] = [f"{m:.2f} ({h}/{len(rids)})" for m, h in zip(p.mean(0), hits)]
+    cases.to_csv(f"{tables}/melanoma_cases.csv", index=False)
+
+    # Phototype: Fitzpatrick is missing only in ACK/NEV/SEK, so "unknown" has no cancers (no AUC, only specificity).
+    fitz = meta.loc[img_ids, "fitspatrick"].to_numpy()
+    photo = np.where(np.isnan(fitz), "Desconocido", np.where(fitz <= 2, "I-II", "III-VI"))
+    bias_rows = []
+    for model, aug in groups:
+        rids = runs.loc[(runs["model"] == model) & (runs["aug"] == aug), "run_id"]
+        for ph in ("I-II", "III-VI", "Desconocido"):
+            m = photo == ph
+            yc = y_test[m]
+            row = {"Modelo": label(model, aug)[0], "Augmentation": aug, "Fototipo": ph,
+                   "n (cáncer/no)": f"{yc.sum()}/{(~yc).sum()}"}
+            # ponytail: AUC only with >= 10 per class; below that a single image swings it by > 0.05
+            ok = min(yc.sum(), (~yc).sum()) >= 10
+            row["AUC cáncer"] = pm(pd.Series([roc_auc_score(yc, pc[r][m]) for r in rids])) if ok else "-"
+            row["Sens."] = pm(pd.Series([(pc[r][m][yc] >= thr[r]).mean() for r in rids])) if yc.any() else "-"
+            row["Espec."] = pm(pd.Series([(pc[r][m][~yc] < thr[r]).mean() for r in rids])) if (~yc).any() else "-"
+            bias_rows.append(row)
+    bias_df = pd.DataFrame(bias_rows)
+    bias_df.to_csv(f"{tables}/bias.csv", index=False)
+    write_tex(bias_df, f"{tables}/bias.tex",
+              "Triaje por fototipo de Fitzpatrick en el test limpio (media $\\pm$ sd entre semillas; umbral de "
+              "operación fijado en validación). El fototipo falta solo en lesiones no cancerosas. "
+              "AUC solo con al menos 10 casos por clase.")
+
+    # Confusion matrices (6 classes, robust augmentation, summed over seeds, row-normalized).
+    robust = [m for m, a in groups if a == "robust"]
+    if robust:
+        fig, axes = plt.subplots(1, len(robust), figsize=(5 * len(robust), 4.4), squeeze=False)
+        for ax, model in zip(axes[0], robust):
+            cm = sum(confusion_matrix(clean_test[r]["y_true"], clean_test[r][[f"p_{c}" for c in CLASSES]]
+                                      .to_numpy().argmax(1), labels=range(len(CLASSES)))
+                     for r in runs.loc[(runs["model"] == model) & (runs["aug"] == "robust"), "run_id"])
+            cmn = cm / cm.sum(1, keepdims=True)
+            ax.imshow(cmn, cmap="Blues", vmin=0, vmax=1)
+            for i, j in np.ndindex(cm.shape):
+                ax.text(j, i, f"{cmn[i, j]:.2f}", ha="center", va="center", fontsize=8,
+                        color="white" if cmn[i, j] > 0.5 else "black")
+            ax.set_xticks(range(len(CLASSES)), CLASSES)
+            ax.set_yticks(range(len(CLASSES)), CLASSES)
+            ax.set_xlabel("Predicción")
+            ax.set_ylabel("Real")
+            ax.set_title(f"{label(model, 'robust')[0]} · robust")
+        plt.tight_layout()
+        plt.savefig(f"{figures}/confusion_robust.png", dpi=200)
+        plt.close(fig)
+
+    # Compute cost, from the training logs (wall time includes the final 31-condition prediction).
+    logs = [json.load(open(p)) for p in sorted(Path(logs_dir).glob("*.json"))]
+    cost_df = None
+    if logs:
+        cost = pd.DataFrame([dict(zip(("model", "aug", "seed"), parse_run(lg["run_id"])), arch=lg["config"]["model"],
+                                  gpu=lg["gpu"], epochs=lg["epochs_run"], best=lg["best_epoch"],
+                                  minutes=lg["wall_seconds"] / 60) for lg in logs])
+        cost_rows = []
+        for (model, aug), g in sorted(cost.groupby(["model", "aug"]), key=lambda kv: (kv[0][0], order[kv[0][1]])):
+            params = sum(p.numel() for p in timm.create_model(g["arch"].iloc[0], num_classes=len(CLASSES)).parameters())
+            cost_rows.append({"Modelo": label(model, aug)[0], "Augmentation": aug, "GPU": ", ".join(g["gpu"].unique()),
+                              "Parámetros (M)": f"{params / 1e6:.1f}", "Corridas": len(g),
+                              "Épocas": pm(g["epochs"], 1), "Mejor época": pm(g["best"], 1),
+                              "Min por corrida": pm(g["minutes"], 1), "Horas totales": f"{g['minutes'].sum() / 60:.2f}"})
+        cost_rows.append({"Modelo": "Total", "Corridas": len(cost), "Horas totales": f"{cost['minutes'].sum() / 60:.2f}"})
+        cost_df = pd.DataFrame(cost_rows).fillna("")
+        cost_df.to_csv(f"{tables}/cost.csv", index=False)
+        write_tex(cost_df, f"{tables}/cost.tex",
+                  "Costo computacional por condición (media $\\pm$ sd entre semillas). Los minutos incluyen la "
+                  "predicción final sobre validación y las 31 condiciones de test.")
+
     # Figure: AUC vs severity, one panel per corruption, one line per (model, aug).
     fig, axes = plt.subplots(2, 3, figsize=(12, 7), sharey=True)
     styles = {"none": "C0", "standard": "C1", "robust": "C2", "-": "C7"}
@@ -239,7 +339,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
             x = [0] + list(c.index)
             ax.errorbar(x, [clean["auc_mean"]] + list(c["auc_mean"]),
                         yerr=[0 if np.isnan(clean["auc_std"]) else clean["auc_std"]] + list(c["auc_std"].fillna(0)),
-                        color=styles[aug], ls="-" if model != "vits16" else "--", marker="o", ms=3, capsize=2,
+                        color=styles[aug], ls={"vits16": "--", "ham_effb0": ":"}.get(model, "-"), marker="o", ms=3, capsize=2,
                         label=f"{label(model, aug)[0]} · {aug}")
         ax.set_title(corr + ("" if corr in SEEN else " (no vista)"))
         ax.set_xticks(range(6))
@@ -256,6 +356,11 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     print(six_df.to_string(index=False))
     print(rob_df.to_string(index=False))
     print(paired_df.to_string(index=False))
+    print(sub_df.to_string(index=False))
+    print(bias_df.to_string(index=False))
+    print(cases.to_string(index=False))
+    if cost_df is not None:
+        print(cost_df.to_string(index=False))
 
 
 def selftest():
@@ -277,13 +382,16 @@ def selftest():
             for s in (1, 2):
                 df.to_csv(f"{d}/preds/{name}_none_s{s}.csv", index=False)
         Path(f"{d}/fig").mkdir()
-        main(f"{d}/preds", tables=f"{d}/tables", figures=f"{d}/fig")
+        main(f"{d}/preds", tables=f"{d}/tables", figures=f"{d}/fig", logs_dir=f"{d}/logs")
         res = pd.read_csv(f"{d}/tables/per_run.csv").set_index("run_id")
         assert res.loc["perfect_none_s1", "auc"] == 1 and res.loc["perfect_none_s1", "bacc"] == 1
         assert abs(res.loc["random_none_s1", "auc"] - 0.5) < 0.1
         paired = pd.read_csv(f"{d}/tables/paired.csv").iloc[0]
         assert paired["Comparación"].startswith("random - perfect") and float(paired["Dif. AUC limpia"]) < -0.4
         assert float(paired["IC 95 % (limpia)"].strip("[]").split(",")[1]) < 0
+        sub = pd.read_csv(f"{d}/tables/subtype.csv").set_index("Modelo")
+        assert all(sub.loc["perfect"].iloc[1:].str.startswith("1.00 ± 0.00"))
+        assert not Path(f"{d}/tables/cost.csv").exists()  # no logs -> no cost table
         test = df[df["split"] == "test"]
         yb, s = test["y_true"].isin(CANCER_IDX).to_numpy(), np.round(rng.random(len(test)), 1)  # with ties
         assert np.isclose(fast_auc(yb, s), roc_auc_score(yb, s))
