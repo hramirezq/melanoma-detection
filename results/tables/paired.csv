@@ -1,0 +1,10 @@
+Comparación,Dif. AUC limpia,IC 95 % (limpia),Dif. AUC con corrupción,IC 95 % (corrupción)
+ViT-S/16 - EfficientNet-B0 (none),+0.047,"[+0.025, +0.070]",+0.198,"[+0.177, +0.220]"
+ViT-S/16 - EfficientNet-B0 (standard),+0.031,"[+0.009, +0.055]",+0.145,"[+0.125, +0.166]"
+ViT-S/16 - EfficientNet-B0 (robust),+0.019,"[+0.000, +0.038]",+0.034,"[+0.019, +0.050]"
+EfficientNet-B0: standard - none,+0.018,"[-0.007, +0.043]",+0.059,"[+0.045, +0.071]"
+EfficientNet-B0: robust - none,+0.027,"[+0.005, +0.050]",+0.187,"[+0.164, +0.207]"
+EfficientNet-B0: robust - standard,+0.009,"[-0.009, +0.027]",+0.128,"[+0.110, +0.147]"
+ViT-S/16: standard - none,+0.003,"[-0.012, +0.019]",+0.006,"[-0.007, +0.020]"
+ViT-S/16: robust - none,-0.001,"[-0.018, +0.015]",+0.022,"[+0.005, +0.040]"
+ViT-S/16: robust - standard,-0.004,"[-0.016, +0.007]",+0.017,"[+0.005, +0.027]"

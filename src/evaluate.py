@@ -9,12 +9,13 @@ Operating point: threshold for 90% sensitivity fixed on val, applied unchanged t
 """
 import argparse
 import re
+from itertools import combinations
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.stats import binomtest
+from scipy.stats import binomtest, rankdata
 from sklearn.metrics import balanced_accuracy_score, f1_score, roc_auc_score
 
 from src.data import CLASSES
@@ -57,6 +58,42 @@ def boot_auc_ci(ys, scores, groups, seed=0):
             continue
         stats.append(np.mean([roc_auc_score(ys[idx], s[idx]) for s in scores]))
     return np.percentile(stats, [2.5, 97.5])
+
+
+def fast_auc(y, scores):
+    """AUC of each row of scores (..., n) against boolean y, via Mann-Whitney ranks (ties averaged)."""
+    n1 = y.sum()
+    return (rankdata(scores, axis=-1)[..., y].sum(-1) - n1 * (n1 + 1) / 2) / (n1 * (len(y) - n1))
+
+
+def condition_scores(test, img_ids):
+    """p_cancer as (conditions, images): clean first, then each corruption x severity 1..5, aligned to img_ids."""
+    pc = test.assign(pc=p_cancer(test)).set_index(["corruption", "severity", "img_id"])["pc"]
+    conds = [("clean", 0)] + [(c, s) for c in SEEN + UNSEEN for s in range(1, 6)]
+    out = np.stack([pc.loc[c].reindex(img_ids).to_numpy() for c in conds])
+    assert not np.isnan(out).any(), "missing test rows"
+    return out
+
+
+def boot_paired(y, scores, groups, seed=0):
+    """Clean AUC and mean corrupted AUC (seed means) per key of scores {key: (seeds, conditions, n)}.
+
+    Returns the point estimate and N_BOOT patient resamples; every key sees the same resamples (paired)."""
+    def stat(idx):
+        out = {}
+        for k, s in scores.items():
+            auc = fast_auc(y[idx], s[..., idx]).mean(0)
+            out[k] = np.array([auc[0], auc[1:].mean()])
+        return out
+
+    rng = np.random.default_rng(seed)
+    idx_by_group = [np.flatnonzero(groups == g) for g in np.unique(groups)]
+    boots = []
+    for _ in range(N_BOOT):
+        idx = np.concatenate([idx_by_group[i] for i in rng.integers(len(idx_by_group), size=len(idx_by_group))])
+        if y[idx].min() != y[idx].max():
+            boots.append(stat(idx))
+    return stat(np.arange(len(y))), boots
 
 
 def clopper_pearson(k, n):
@@ -106,7 +143,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
          figures="results/figures"):
     Path(tables).mkdir(parents=True, exist_ok=True)
     patients = pd.read_csv(split_path).set_index("img_id")["patient_id"]
-    runs, aucs, clean_test = [], [], {}
+    runs, aucs, clean_test, test_all = [], [], {}, {}
     for f in sorted(Path(preds_dir).glob("*.csv")):
         preds = pd.read_csv(f)
         model, aug, seed = parse_run(f.stem)
@@ -114,6 +151,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
         runs.append(dict(run_id=f.stem, model=model, aug=aug, seed=seed, **row))
         aucs.append(auc.assign(run_id=f.stem, model=model, aug=aug, seed=seed))
         clean_test[f.stem] = preds.query("split == 'test' and corruption == 'clean'").sort_values("img_id")
+        test_all[f.stem] = preds[preds["split"] == "test"]
     runs, aucs = pd.DataFrame(runs), pd.concat(aucs, ignore_index=True)
     runs.to_csv(f"{tables}/per_run.csv", index=False, float_format="%.4f")
 
@@ -164,6 +202,33 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
               "Caída relativa de la AUC cáncer (\\%) bajo corrupción, promedio de las severidades 1--5 "
               "(media $\\pm$ sd entre semillas). motion blur y jpeg no se usan en la augmentation.")
 
+    # Paired differences (H1: aug vs aug within a model; H2: model vs model with the same aug).
+    first = clean_test[runs["run_id"].iloc[0]]
+    img_ids, y_test = first["img_id"].to_numpy(), first["y_true"].isin(CANCER_IDX).to_numpy()
+    scores = {k: np.stack([condition_scores(test_all[r], img_ids) for r in g["run_id"]])
+              for k, g in runs.groupby(["model", "aug"])}
+    pairs = [((m2, a), (m1, a)) for a in order
+             for m1, m2 in combinations(sorted(m for m, aa in scores if aa == a), 2)]
+    pairs += [((m, a2), (m, a1)) for m in sorted({m for m, _ in scores})
+              for a1, a2 in combinations(["none", "standard", "robust"], 2) if (m, a1) in scores and (m, a2) in scores]
+    full, boots = boot_paired(y_test, scores, patients.loc[img_ids].to_numpy())
+    paired_rows = []
+    for a, b in pairs:
+        d = np.array([bt[a] - bt[b] for bt in boots])
+        lo, hi = np.percentile(d, [2.5, 97.5], axis=0)
+        point = full[a] - full[b]
+        name = (f"{label(*a)[0]} - {label(*b)[0]} ({a[1]})" if a[0] != b[0] else f"{label(*a)[0]}: {a[1]} - {b[1]}")
+        paired_rows.append({"Comparación": name, "Dif. AUC limpia": f"{point[0]:+.3f}",
+                            "IC 95 % (limpia)": f"[{lo[0]:+.3f}, {hi[0]:+.3f}]",
+                            "Dif. AUC con corrupción": f"{point[1]:+.3f}",
+                            "IC 95 % (corrupción)": f"[{lo[1]:+.3f}, {hi[1]:+.3f}]"})
+    paired_df = pd.DataFrame(paired_rows)
+    paired_df.to_csv(f"{tables}/paired.csv", index=False)
+    write_tex(paired_df, f"{tables}/paired.tex",
+              "Diferencias emparejadas de AUC cáncer en test (media de semillas de cada grupo). Con corrupción: "
+              "media de las 30 condiciones (6 corrupciones $\\times$ 5 severidades). IC 95 \\% por bootstrap de "
+              "pacientes con los mismos remuestreos para ambos grupos.")
+
     # Figure: AUC vs severity, one panel per corruption, one line per (model, aug).
     fig, axes = plt.subplots(2, 3, figsize=(12, 7), sharey=True)
     styles = {"none": "C0", "standard": "C1", "robust": "C2", "-": "C7"}
@@ -190,6 +255,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     print(main_df.iloc[:, :7].to_string(index=False))
     print(six_df.to_string(index=False))
     print(rob_df.to_string(index=False))
+    print(paired_df.to_string(index=False))
 
 
 def selftest():
@@ -215,7 +281,12 @@ def selftest():
         res = pd.read_csv(f"{d}/tables/per_run.csv").set_index("run_id")
         assert res.loc["perfect_none_s1", "auc"] == 1 and res.loc["perfect_none_s1", "bacc"] == 1
         assert abs(res.loc["random_none_s1", "auc"] - 0.5) < 0.1
+        paired = pd.read_csv(f"{d}/tables/paired.csv").iloc[0]
+        assert paired["Comparación"].startswith("random - perfect") and float(paired["Dif. AUC limpia"]) < -0.4
+        assert float(paired["IC 95 % (limpia)"].strip("[]").split(",")[1]) < 0
         test = df[df["split"] == "test"]
+        yb, s = test["y_true"].isin(CANCER_IDX).to_numpy(), np.round(rng.random(len(test)), 1)  # with ties
+        assert np.isclose(fast_auc(yb, s), roc_auc_score(yb, s))
         try:
             threshold_at_sensitivity(test)
             raise RuntimeError("threshold accepted test rows")
