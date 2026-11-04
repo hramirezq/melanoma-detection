@@ -63,6 +63,14 @@ Escribe `results/logs/<run_id>.json`, `results/checkpoints/<run_id>.pt` y `resul
 
 Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, `paired.tex` (diferencias emparejadas de AUC entre augmentations y entre modelos, limpia y con corrupción), `subtype.tex` (sensibilidad por BCC/MEL/SCC), `bias.tex` (por fototipo de Fitzpatrick), `cost.tex` (a partir de `results/logs`), `melanoma_cases.csv`, los CSV correspondientes, `results/figures/robustness_curve.png` y `results/figures/confusion_robust.png`. Requiere `data/raw/pad_256/metadata.csv`.
 
+## Interpretabilidad
+
+```bash
+.venv/bin/python -m src.explain   # requiere results/checkpoints/{effb0,vits16}_{standard,robust}_s1.pt
+```
+
+Genera `results/figures/gradcam_effb0.png` (Grad-CAM de la probabilidad de cáncer), `results/figures/rollout_vits16.png` (attention rollout) y `results/tables/explain_stability.tex` (correlación entre el mapa limpio y con corrupción sobre los cánceres de test).
+
 ## Estructura
 
 ```

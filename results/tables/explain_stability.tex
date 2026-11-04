@@ -1,0 +1,14 @@
+\begin{table}[t]
+\caption{Estabilidad de la explicación: correlación de Pearson entre el mapa limpio y el mapa con corrupción (severidad 3), media sobre los 156 cánceres de test (semilla 1). Un mapa vacío (sin evidencia de cáncer) cuenta como correlación 0. Solo es comparable entre augmentations del mismo modelo, porque los métodos difieren.}
+\label{tab:explain_stability}
+\begin{tabular}{llcccccccc}
+\toprule
+Modelo & Método & Augmentation & brightness & gaussian blur & gaussian noise & hair & motion blur & jpeg & Media \\
+\midrule
+EfficientNet-B0 & Grad-CAM & standard & 0.70 & 0.45 & 0.01 & 0.57 & 0.53 & 0.61 & 0.48 \\
+EfficientNet-B0 & Grad-CAM & robust & 0.83 & 0.62 & 0.67 & 0.64 & 0.66 & 0.65 & 0.68 \\
+ViT-S/16 & Attention rollout & standard & 0.86 & 0.76 & 0.75 & 0.70 & 0.79 & 0.83 & 0.78 \\
+ViT-S/16 & Attention rollout & robust & 0.88 & 0.78 & 0.79 & 0.57 & 0.81 & 0.86 & 0.78 \\
+\bottomrule
+\end{tabular}
+\end{table}

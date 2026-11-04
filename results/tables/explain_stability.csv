@@ -1,0 +1,5 @@
+Modelo,Método,Augmentation,brightness,gaussian_blur,gaussian_noise,hair,motion_blur,jpeg,Media
+EfficientNet-B0,Grad-CAM,standard,0.698,0.454,0.008,0.567,0.530,0.612,0.478
+EfficientNet-B0,Grad-CAM,robust,0.834,0.615,0.668,0.638,0.658,0.645,0.676
+ViT-S/16,Attention rollout,standard,0.861,0.756,0.746,0.704,0.793,0.835,0.783
+ViT-S/16,Attention rollout,robust,0.882,0.781,0.788,0.571,0.806,0.860,0.781
