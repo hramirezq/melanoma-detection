@@ -184,7 +184,7 @@ def main():
                train_seconds=state["train_seconds"], predict_seconds=time.time() - t0,
                wall_seconds=state["train_seconds"] + time.time() - t0)
     json.dump(log, open(out / "logs" / f"{run_id}.json", "w"), indent=1)
-    last_ckpt.unlink()
+    last_ckpt.unlink(missing_ok=True)  # Drive's FUSE mount can hide a file that was just overwritten
     print(f"{run_id}: best epoch {state['best_epoch']}  val AUC cancer {state['best_auc']:.3f}  "
           f"{log['wall_seconds'] / 60:.1f} min  -> {out}/preds/{run_id}.csv ({len(preds)} rows)")
 
