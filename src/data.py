@@ -29,6 +29,27 @@ def load_pad(root):
     return df
 
 
+# HAM10000 -> PAD columns, so p_cancer = mel + bcc + akiec. akiec (incl. intraepithelial carcinoma) counts as
+# cancer although PAD labels ACK as non-cancer; df and vasc go to ACK as "other non-cancer".
+HAM_TO_PAD = {"mel": "MEL", "bcc": "BCC", "akiec": "SCC", "nv": "NEV", "bkl": "SEK", "df": "ACK", "vasc": "ACK"}
+
+
+def load_ham(root, seed=42):
+    """HAM10000 mapped to PAD classes, with a ~6/1 train/val split grouped by lesion (H3: train on HAM, test on PAD)."""
+    root = Path(root)
+    df = pd.read_csv(next(root.glob("HAM10000_metadata*")), sep=None, engine="python")  # .tab (Dataverse) or .csv
+    paths = {p.stem: p for p in root.rglob("*.jpg")}
+    df["path"] = df["image_id"].map(paths)
+    assert df["path"].notna().all(), f"{df['path'].isna().sum()} images missing under {root}"
+    df["img_id"], df["diagnostic"] = df["image_id"], df["dx"].map(HAM_TO_PAD)
+    df["label"] = df["diagnostic"].map(CLASSES.index)
+    train_idx, val_idx = next(StratifiedGroupKFold(n_splits=7, shuffle=True, random_state=seed)
+                              .split(df, df["label"], df["lesion_id"]))
+    df["split"] = "train"
+    df.loc[df.index[val_idx], "split"] = "val"
+    return df
+
+
 def make_split(df, seed=42):
     """~70/15/15 train/val/test, stratified by class, grouped by patient (no leakage)."""
     df = df.copy()

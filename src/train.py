@@ -24,7 +24,7 @@ from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 from src.corruptions import CORRUPTIONS, apply_corruption, build_transform
-from src.data import CLASSES, PADDataset, load_pad
+from src.data import CLASSES, PADDataset, load_ham, load_pad
 
 CANCER_IDX = [CLASSES.index(c) for c in ("BCC", "MEL", "SCC")]
 
@@ -76,6 +76,7 @@ def main():
     ap.add_argument("--resume", action="store_true", help="continue from <out>/checkpoints/<run_id>_last.pt")
     ap.add_argument("--root", default="data/raw/pad_256")
     ap.add_argument("--split", default="data/splits/pad_split.csv")
+    ap.add_argument("--ham-root", default="data/raw/ham10000", help="only for configs with data: ham")
     ap.add_argument("--out", default="results")
     ap.add_argument("--workers", type=int, default=4)
     args = ap.parse_args()
@@ -98,6 +99,11 @@ def main():
     df = load_pad(args.root).merge(pd.read_csv(args.split)[["img_id", "split"]], on="img_id")
     assert len(df) == 2298, len(df)
     train_df, val_df, test_df = (df[df["split"] == s] for s in ("train", "val", "test"))
+    if cfg.get("data") == "ham":  # train and early-stop on HAM10000; PAD val/test are predicted as usual
+        ham = load_ham(args.ham_root)
+        train_df, fit_val_df = ham[ham["split"] == "train"], ham[ham["split"] == "val"]
+    else:
+        fit_val_df = val_df
 
     size = cfg["img_size"]
     loader_kw = dict(batch_size=cfg["batch_size"], num_workers=args.workers, pin_memory=amp,
@@ -106,7 +112,7 @@ def main():
     gen = torch.Generator()
     train_loader = DataLoader(PADDataset(train_df, build_transform(cfg["aug"], True, size)), shuffle=True,
                               drop_last=True, generator=gen, **{**loader_kw, "persistent_workers": False})
-    val_loader = DataLoader(PADDataset(val_df, build_transform(cfg["aug"], False, size)), **loader_kw)
+    val_loader = DataLoader(PADDataset(fit_val_df, build_transform(cfg["aug"], False, size)), **loader_kw)
 
     counts = np.bincount(train_df["label"], minlength=len(CLASSES))
     class_w = torch.tensor(len(train_df) / (len(CLASSES) * counts), dtype=torch.float32, device=device)
@@ -127,7 +133,7 @@ def main():
         state = ck["state"]
         print(f"resumed {run_id} at epoch {state['epoch']}")
 
-    y_val = val_df["label"].to_numpy()
+    y_val = fit_val_df["label"].to_numpy()
     while state["epoch"] < cfg["epochs"] and state["bad_epochs"] < cfg["patience"]:
         t0 = time.time()
         gen.manual_seed(cfg["seed"] * 1000 + state["epoch"])
