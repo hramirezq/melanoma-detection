@@ -25,6 +25,10 @@ from src.explain import gradcam, load, rollout
 
 DISCLAIMER = ("Herramienta de investigación. **No es un dispositivo médico** ni sustituye el diagnóstico de un "
               "especialista. Entrenada con fotos clínicas de Brasil (PAD-UFES-20), mayoría de fototipos I–III.")
+# The softmax always splits 100 % among the 6 trained classes: anything else gets a meaningless answer.
+SCOPE = ("**Solo distingue 6 lesiones:** queratosis actínica, carcinoma basocelular, melanoma, nevo, carcinoma "
+         "espinocelular y queratosis seborreica. Con otras condiciones (acné, eczema, picaduras, verrugas…) o fotos "
+         "sin una lesión, el resultado no tiene sentido: el modelo no puede responder «ninguna de estas».")
 
 
 def to_256(img):
@@ -51,7 +55,7 @@ def build(run, device):
         p = float(p)
         verdict = "CÁNCER: derivar a dermatología" if p >= thr else "NO CÁNCER"
         text = (f"## {verdict}\nProbabilidad de cáncer (BCC + MEL + SCC): **{p:.2f}** · umbral {thr:.2f} "
-                f"(sensibilidad 90 % fijada en validación)\n\n{DISCLAIMER}")
+                f"(sensibilidad 90 % fijada en validación)\n\n{SCOPE}\n\n{DISCLAIMER}")
         m = F.interpolate(m.detach().cpu()[None], size=224, mode="bilinear")[0, 0].numpy()
         base = np.asarray(T.CenterCrop(224)(T.Resize(224)(img)), dtype=np.float32) / 255  # what the model sees
         overlay = 0.55 * base + 0.45 * matplotlib.colormaps["jet"](m)[..., :3]
@@ -76,7 +80,7 @@ def main():
     examples = [[p, "ninguna", 3] for i in ids if (p := Path(f"data/raw/pad_256/{i}.png")).exists()]
 
     with gr.Blocks(title="Triaje de lesiones cutáneas") as demo:
-        gr.Markdown(f"# Triaje de lesiones cutáneas: cáncer vs. no cáncer\nModelo `{args.run}`. {DISCLAIMER}")
+        gr.Markdown(f"# Triaje de lesiones cutáneas: cáncer vs. no cáncer\nModelo `{args.run}`. {DISCLAIMER}\n\n{SCOPE}")
         with gr.Row():
             with gr.Column():
                 img = gr.Image(type="pil", label="Foto de la lesión")
