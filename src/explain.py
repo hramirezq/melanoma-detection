@@ -3,9 +3,13 @@
 Usage:
     python -m src.explain    # needs results/checkpoints/{effb0,vits16}_{standard,robust}_s1.pt
 
-Writes results/figures/gradcam_effb0.png, results/figures/rollout_vits16.png and
-results/tables/explain_stability.csv|tex (correlation between the clean and corrupted maps over all test images).
+Writes results/figures/gradcam_effb0.png, results/figures/rollout_vits16.png,
+results/tables/explain_stability.csv|tex (correlation between the clean and corrupted maps over the test cancers)
+and results/tables/inference.csv|tex (latency per image).
 """
+import platform
+import time
+
 import numpy as np
 import pandas as pd
 import torch
@@ -87,6 +91,22 @@ def explain(model, method, df, corruption, severity, device):
     return maps, probs
 
 
+@torch.no_grad()
+def ms_per_image(model, device, n=50):
+    """Mean latency of one 224 px image (batch 1), after warm-up."""
+    model = model.to(device)
+    x = torch.rand(1, 3, 224, 224, device=device)
+    sync = torch.mps.synchronize if device == "mps" else torch.cuda.synchronize if device == "cuda" else lambda: None
+    for _ in range(5):
+        model(x)
+    sync()
+    t0 = time.perf_counter()
+    for _ in range(n):
+        model(x)
+    sync()
+    return (time.perf_counter() - t0) / n * 1000
+
+
 def figure(maps, probs, images, rows, model_key, path):
     """Rows = images; columns = original + (condition x augmentation) overlays, titled with p_cancer."""
     import matplotlib.pyplot as plt
@@ -122,7 +142,7 @@ def main(root="data/raw/pad_256", split="data/splits/pad_split.csv"):
 
     # Stability over cancer images only: for a benign lesion Grad-CAM of p_cancer is often empty by design.
     cancers = test[test["label"].isin(CANCER_IDX)]
-    stability = []
+    stability, latency = [], []
     for key, method, fig_name in (("effb0", gradcam, "gradcam_effb0"), ("vits16", rollout, "rollout_vits16")):
         maps, probs = {}, {}
         for aug in ("standard", "robust"):
@@ -142,6 +162,11 @@ def main(root="data/raw/pad_256", split="data/splits/pad_split.csv"):
             for c, s in FIG_CONDITIONS:
                 maps[(aug, c, s)], probs[(aug, c, s)] = explain(model, method, rows, c, s, device)
             print(run, {k: round(v, 3) for k, v in row.items() if isinstance(v, float)})
+            if aug == "robust":  # same architecture for both augs: time it once
+                latency.append({"Modelo": MODEL_NAMES[key],
+                                "Parámetros (M)": f"{sum(q.numel() for q in model.parameters()) / 1e6:.1f}",
+                                f"ms/imagen ({device})": f"{ms_per_image(model, device):.1f}",
+                                "ms/imagen (cpu)": f"{ms_per_image(model, 'cpu'):.1f}"})
         figure(maps, probs, images, rows, key, f"results/figures/{fig_name}.png")
 
     st = pd.DataFrame(stability)
@@ -152,8 +177,13 @@ def main(root="data/raw/pad_256", split="data/splits/pad_split.csv"):
               f"Estabilidad de la explicación: correlación de Pearson entre el mapa limpio y el mapa con corrupción "
               f"(severidad {SEVERITY}), media sobre los {len(cancers)} cánceres de test (semilla 1). Un mapa vacío "
               "(sin evidencia de cáncer) cuenta como correlación 0. Solo es comparable entre augmentations del "
-              "mismo modelo, porque los métodos difieren.")
+              "mismo modelo, porque los métodos difieren.", wide=True)
     print(st.to_string(index=False, float_format="%.3f"))
+    lat = pd.DataFrame(latency)
+    lat.to_csv("results/tables/inference.csv", index=False)
+    write_tex(lat, "results/tables/inference.tex", f"Tiempo de inferencia por imagen (lote 1, 224 px, media de 50 "
+              f"pasadas tras calentamiento) en {platform.platform(terse=True)} ({platform.machine()}).")
+    print(lat.to_string(index=False))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,3 @@
+Modelo,Parámetros (M),ms/imagen (mps),ms/imagen (cpu)
+EfficientNet-B0,4.0,9.4,276.6
+ViT-S/16,21.7,8.1,19.6

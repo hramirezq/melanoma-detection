@@ -135,16 +135,33 @@ def label(model, aug):
     return MODEL_NAMES.get(model, model), aug
 
 
-def write_tex(df, path, caption):
+def write_tex(df, path, caption, wide=False):
+    """LaTeX table that shrinks to the column (or, if wide, to the page width in a table*); needs adjustbox."""
     df = df.map(lambda v: v.replace("±", "$\\pm$").replace("%", "\\%") if isinstance(v, str) else v)
     df.columns = [c.replace("%", "\\%") for c in df.columns]
-    df.to_latex(path, index=False, caption=caption, label=f"tab:{Path(path).stem}", position="t", column_format="l" * 2 + "c" * (df.shape[1] - 2))
+    tex = df.to_latex(index=False, caption=caption, label=f"tab:{Path(path).stem}", position="t",
+                      column_format="l" * 2 + "c" * (df.shape[1] - 2))
+    tex = (tex.replace("\\begin{tabular}", "\\centering\n\\begin{adjustbox}{max width=\\linewidth}\n\\begin{tabular}")
+           .replace("\\end{tabular}", "\\end{tabular}\n\\end{adjustbox}"))
+    Path(path).write_text(tex.replace("{table}", "{table*}") if wide else tex)
 
 
 def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tables="results/tables",
          figures="results/figures", logs_dir="results/logs", meta_path="data/raw/pad_256/metadata.csv"):
     Path(tables).mkdir(parents=True, exist_ok=True)
-    patients = pd.read_csv(split_path).set_index("img_id")["patient_id"]
+    split = pd.read_csv(split_path)
+    patients = split.set_index("img_id")["patient_id"]
+
+    # Dataset summary per partition (images, patients, classes).
+    data = pd.crosstab(split["split"], split["diagnostic"]).reindex(["train", "val", "test"]).reindex(columns=CLASSES, fill_value=0)
+    data.insert(0, "Pacientes", split.groupby("split")["patient_id"].nunique())
+    data.insert(0, "Imágenes", data[CLASSES].sum(1))
+    data["Cáncer"] = data[["BCC", "MEL", "SCC"]].sum(1)
+    data.index = data.index.map({"train": "Entrenamiento", "val": "Validación", "test": "Prueba"})
+    data = data.rename_axis("Partición").reset_index().astype(str)
+    data.to_csv(f"{tables}/data.csv", index=False)
+    write_tex(data, f"{tables}/data.tex", "Resumen de PAD-UFES-20 por partición (agrupada por paciente). "
+              "Cáncer = BCC + MEL + SCC.")
     runs, aucs, clean_test, test_all = [], [], {}, {}
     for f in sorted(Path(preds_dir).glob("*.csv")):
         preds = pd.read_csv(f)
@@ -177,9 +194,13 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     main_df, six_df = pd.DataFrame(main_rows), pd.DataFrame(six_rows)
     main_df.to_csv(f"{tables}/main.csv", index=False)
     six_df.to_csv(f"{tables}/main_6class.csv", index=False)
-    write_tex(main_df.iloc[:, [0, 1, 3, 4, 5, 6]], f"{tables}/main.tex",
+    best = main_df.copy()  # bold the best mean in the LaTeX table only
+    for col in ("AUC cáncer", "Espec. @ sens. 90 %"):
+        i = best[col].str.split().str[0].astype(float).idxmax()
+        best.loc[i, col] = f"\\textbf{{{best.loc[i, col]}}}"
+    write_tex(best.iloc[:, [0, 1, 3, 4, 5, 6]], f"{tables}/main.tex",
               "Triaje cáncer vs. no cáncer en el test limpio de PAD-UFES-20 (media $\\pm$ sd entre semillas; "
-              "IC 95 \\% por bootstrap de pacientes). Umbral fijado en validación a sensibilidad 90 \\%.")
+              "IC 95 \\% por bootstrap de pacientes). Umbral fijado en validación a sensibilidad 90 \\%.", wide=True)
     write_tex(six_df, f"{tables}/main_6class.tex", "Clasificación en 6 clases en el test limpio (media $\\pm$ sd).")
 
     # Robustness: relative AUC drop per seed, then mean +- sd over seeds.
@@ -202,7 +223,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     rob_df.to_csv(f"{tables}/robustness_drop.csv", index=False)
     write_tex(rob_df.rename(columns=lambda c: c.replace("_", " ")), f"{tables}/robustness.tex",
               "Caída relativa de la AUC cáncer (\\%) bajo corrupción, promedio de las severidades 1--5 "
-              "(media $\\pm$ sd entre semillas). motion blur y jpeg no se usan en la augmentation.")
+              "(media $\\pm$ sd entre semillas). motion blur y jpeg no se usan en la augmentation.", wide=True)
 
     # Paired differences (H1: aug vs aug within a model; H2: model vs model with the same aug).
     first = clean_test[runs["run_id"].iloc[0]]
@@ -230,7 +251,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     write_tex(paired_df, f"{tables}/paired.tex",
               "Diferencias emparejadas de AUC cáncer en test (media de semillas de cada grupo). Con corrupción: "
               "media de las 30 condiciones (6 corrupciones $\\times$ 5 severidades). IC 95 \\% por bootstrap de "
-              "pacientes con los mismos remuestreos para ambos grupos.")
+              "pacientes con los mismos remuestreos para ambos grupos.", wide=True)
 
     # Sensitivity per cancer subtype at the operating threshold; exact CI with the seed-mean hit count.
     sub_rows = []
@@ -246,7 +267,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     sub_df.to_csv(f"{tables}/subtype.csv", index=False)
     write_tex(sub_df, f"{tables}/subtype.tex",
               "Sensibilidad por subtipo de cáncer en el test limpio al umbral de operación (media $\\pm$ sd entre "
-              "semillas). IC 95 \\% exacto de Clopper-Pearson con el número medio de aciertos, redondeado.")
+              "semillas). IC 95 \\% exacto de Clopper-Pearson con el número medio de aciertos, redondeado.", wide=True)
 
     # Per-run flags at the operating threshold (rows aligned with `first`, sorted by img_id).
     thr = runs.set_index("run_id")["threshold"]
@@ -285,7 +306,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     write_tex(bias_df, f"{tables}/bias.tex",
               "Triaje por fototipo de Fitzpatrick en el test limpio (media $\\pm$ sd entre semillas; umbral de "
               "operación fijado en validación). El fototipo falta solo en lesiones no cancerosas. "
-              "AUC solo con al menos 10 casos por clase.")
+              "AUC solo con al menos 10 casos por clase.", wide=True)
 
     # Confusion matrices (6 classes, robust augmentation, summed over seeds, row-normalized).
     robust = [m for m, a in groups if a == "robust"]
@@ -328,7 +349,7 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
         cost_df.to_csv(f"{tables}/cost.csv", index=False)
         write_tex(cost_df, f"{tables}/cost.tex",
                   "Costo computacional por condición (media $\\pm$ sd entre semillas). Los minutos incluyen la "
-                  "predicción final sobre validación y las 31 condiciones de test.")
+                  "predicción final sobre validación y las 31 condiciones de test.", wide=True)
 
     # Figure: AUC vs severity, one panel per corruption, one line per (model, aug).
     fig, axes = plt.subplots(2, 3, figsize=(12, 7), sharey=True)

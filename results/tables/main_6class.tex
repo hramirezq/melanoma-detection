@@ -1,6 +1,8 @@
 \begin{table}[t]
 \caption{Clasificación en 6 clases en el test limpio (media $\pm$ sd).}
 \label{tab:main_6class}
+\centering
+\begin{adjustbox}{max width=\linewidth}
 \begin{tabular}{llcc}
 \toprule
 Modelo & Augmentation & BACC & Macro-F1 \\
@@ -15,4 +17,5 @@ ViT-S/16 & standard & 0.662 $\pm$ 0.051 & 0.680 $\pm$ 0.047 \\
 ViT-S/16 & robust & 0.671 $\pm$ 0.025 & 0.671 $\pm$ 0.015 \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \end{table}

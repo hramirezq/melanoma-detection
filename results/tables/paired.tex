@@ -1,6 +1,8 @@
-\begin{table}[t]
+\begin{table*}[t]
 \caption{Diferencias emparejadas de AUC cáncer en test (media de semillas de cada grupo). Con corrupción: media de las 30 condiciones (6 corrupciones $\times$ 5 severidades). IC 95 \% por bootstrap de pacientes con los mismos remuestreos para ambos grupos.}
 \label{tab:paired}
+\centering
+\begin{adjustbox}{max width=\linewidth}
 \begin{tabular}{llccc}
 \toprule
 Comparación & Dif. AUC limpia & IC 95 \% (limpia) & Dif. AUC con corrupción & IC 95 \% (corrupción) \\
@@ -17,4 +19,5 @@ ViT-S/16: robust - none & -0.001 & [-0.018, +0.015] & +0.022 & [+0.005, +0.040] 
 ViT-S/16: robust - standard & -0.004 & [-0.016, +0.007] & +0.017 & [+0.005, +0.027] \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{adjustbox}
+\end{table*}

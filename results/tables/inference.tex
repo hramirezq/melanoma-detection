@@ -1,0 +1,15 @@
+\begin{table}[t]
+\caption{Tiempo de inferencia por imagen (lote 1, 224 px, media de 50 pasadas tras calentamiento) en macOS-27.0.1 (arm64).}
+\label{tab:inference}
+\centering
+\begin{adjustbox}{max width=\linewidth}
+\begin{tabular}{llcc}
+\toprule
+Modelo & Parámetros (M) & ms/imagen (mps) & ms/imagen (cpu) \\
+\midrule
+EfficientNet-B0 & 4.0 & 9.4 & 276.6 \\
+ViT-S/16 & 21.7 & 8.1 & 19.6 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
