@@ -210,7 +210,8 @@ def main(preds_dir="results/preds", split_path="data/splits/pad_split.csv", tabl
     scores = {k: np.stack([condition_scores(test_all[r], img_ids) for r in g["run_id"]])
               for k, g in runs.groupby(["model", "aug"])}
     pairs = [((m2, a), (m1, a)) for a in order
-             for m1, m2 in combinations(sorted(m for m, aa in scores if aa == a), 2)]
+             for m1, m2 in combinations(sorted(m for m, aa in scores if aa == a), 2)
+             if "ham_" not in m1 + m2 or m1.removeprefix("ham_") == m2.removeprefix("ham_")]  # H3: HAM only vs. its PAD twin
     pairs += [((m, a2), (m, a1)) for m in sorted({m for m, _ in scores})
               for a1, a2 in combinations(["none", "standard", "robust"], 2) if (m, a1) in scores and (m, a2) in scores]
     full, boots = boot_paired(y_test, scores, patients.loc[img_ids].to_numpy())

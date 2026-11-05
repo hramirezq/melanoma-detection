@@ -2,7 +2,8 @@ Modelo,Augmentation,GPU,Parámetros (M),Corridas,Épocas,Mejor época,Min por co
 EfficientNet-B0,none,Tesla T4,4.0,3,18.3 ± 3.5,11.3 ± 3.5,4.8 ± 0.7,0.24
 EfficientNet-B0,standard,Tesla T4,4.0,3,21.0 ± 5.2,14.0 ± 5.2,5.8 ± 1.0,0.29
 EfficientNet-B0,robust,Tesla T4,4.0,3,23.3 ± 7.0,17.7 ± 9.0,12.4 ± 3.4,0.62
+EfficientNet-B0 (HAM),standard,Tesla T4,4.0,1,12.0,5.0,22.0,0.37
 ViT-S/16,none,Tesla T4,21.7,3,15.7 ± 4.0,8.7 ± 4.0,4.7 ± 0.6,0.23
 ViT-S/16,standard,Tesla T4,21.7,3,18.7 ± 6.4,11.7 ± 6.4,5.9 ± 1.7,0.29
 ViT-S/16,robust,Tesla T4,21.7,3,21.3 ± 6.7,14.3 ± 6.7,13.8 ± 3.8,0.69
-Total,,,,18,,,,2.36
+Total,,,,19,,,,2.73
