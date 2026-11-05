@@ -71,6 +71,14 @@ Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacie
 
 Genera `results/figures/gradcam_effb0.png` (Grad-CAM de la probabilidad de cáncer), `results/figures/rollout_vits16.png` (attention rollout) y `results/tables/explain_stability.tex` (correlación entre el mapa limpio y con corrupción sobre los cánceres de test).
 
+## Demo web
+
+```bash
+.venv/bin/python -m app   # requiere results/checkpoints/vits16_robust_s1.pt; abre http://localhost:7860
+```
+
+Web local para subir la foto de una lesión y obtener cáncer / no cáncer con ViT-S/16 `robust`, al umbral de sensibilidad 90 % fijado en `val` (`results/tables/per_run.csv`). Muestra las probabilidades de las 6 clases y el attention rollout, y permite degradar la foto con las corrupciones de test para ver la robustez. `--run <run_id>` cambia el modelo. Solo escucha en `127.0.0.1`. No es un dispositivo médico.
+
 ## Estructura
 
 ```
