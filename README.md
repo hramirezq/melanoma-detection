@@ -61,7 +61,7 @@ Escribe `results/logs/<run_id>.json`, `results/checkpoints/<run_id>.pt` y `resul
 .venv/bin/python -m src.evaluate --selftest # predicciones sintéticas: perfecta → AUC 1, aleatoria → ~0,5
 ```
 
-Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, `paired.tex` (diferencias emparejadas de AUC entre augmentations y entre modelos, limpia y con corrupción), `subtype.tex` (sensibilidad por BCC/MEL/SCC), `bias.tex` (por fototipo de Fitzpatrick), `cost.tex` (a partir de `results/logs`), `melanoma_cases.csv`, los CSV correspondientes, `results/figures/robustness_curve.png` y `results/figures/confusion_robust.png`. Requiere `data/raw/pad_256/metadata.csv`.
+Genera `results/tables/data.tex` (resumen por partición), `main.tex` (AUC cáncer con IC 95 % por bootstrap de pacientes y especificidad a sensibilidad 90 %, umbral fijado en `val`), `main_6class.tex`, `robustness.tex`, `paired.tex` (diferencias emparejadas de AUC entre augmentations y entre modelos, limpia y con corrupción), `subtype.tex` (sensibilidad por BCC/MEL/SCC), `bias.tex` (por fototipo de Fitzpatrick), `cost.tex` (a partir de `results/logs`), `melanoma_cases.csv`, los CSV correspondientes, `results/figures/robustness_curve.png` y `results/figures/confusion_robust.png`. Requiere `data/raw/pad_256/metadata.csv`.
 
 ## Interpretabilidad
 
@@ -69,7 +69,7 @@ Genera `results/tables/main.tex` (AUC cáncer con IC 95 % por bootstrap de pacie
 .venv/bin/python -m src.explain   # requiere results/checkpoints/{effb0,vits16}_{standard,robust}_s1.pt
 ```
 
-Genera `results/figures/gradcam_effb0.png` (Grad-CAM de la probabilidad de cáncer), `results/figures/rollout_vits16.png` (attention rollout) y `results/tables/explain_stability.tex` (correlación entre el mapa limpio y con corrupción sobre los cánceres de test).
+Genera `results/figures/gradcam_effb0.png` (Grad-CAM de la probabilidad de cáncer), `results/figures/rollout_vits16.png` (attention rollout), `results/tables/explain_stability.tex` (correlación entre el mapa limpio y con corrupción sobre los cánceres de test) e `inference.tex` (tiempo de inferencia por imagen).
 
 ## Demo web
 
@@ -78,6 +78,14 @@ Genera `results/figures/gradcam_effb0.png` (Grad-CAM de la probabilidad de cánc
 ```
 
 Web local para subir la foto de una lesión y obtener cáncer / no cáncer con ViT-S/16 `robust`, al umbral de sensibilidad 90 % fijado en `val` (`results/tables/per_run.csv`). Muestra las probabilidades de las 6 clases y el attention rollout, y permite degradar la foto con las corrupciones de test para ver la robustez. `--run <run_id>` cambia el modelo. Solo escucha en `127.0.0.1`. No es un dispositivo médico.
+
+## Artículo
+
+```bash
+cd paper && tectonic main.tex   # o latexmk -pdf main.tex
+```
+
+`paper/main.tex` (IEEEtran) incluye las tablas de `results/tables/*.tex` y las figuras de `results/figures/` directamente, así que se compila después de regenerarlas.
 
 ## Estructura
 
